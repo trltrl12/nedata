@@ -17,12 +17,14 @@ export const DEFAULT_MODEL = "claude-sonnet-4-6";
 /**
  * Page strategy for large PDFs:
  *   - Take the first FRONT_PAGES (cover → financial statements)
- *   - Take the last  BACK_PAGES  (findings / opinions)
- *   - Total must stay ≤ 100 (Anthropic hard limit)
+ *   - Take the last  BACK_PAGES  (findings / compliance opinions)
+ *   - Total must stay ≤ API_PAGE_LIMIT (Anthropic hard limit)
+ *   - Dense GAAP county audits run ~2,100 tokens/page, so 70 pages ≈ 147k tokens,
+ *     safely under the 200k context limit with headroom for the prompt.
  */
-const MAX_FRONT_PAGES = 65;
-const MAX_BACK_PAGES = 30;
-const API_PAGE_LIMIT = 100; // Anthropic hard limit
+const MAX_FRONT_PAGES = 50;
+const MAX_BACK_PAGES = 20;
+const API_PAGE_LIMIT = 100; // Anthropic hard limit (page count)
 
 export const FIELDS = [
   "entity_name",
