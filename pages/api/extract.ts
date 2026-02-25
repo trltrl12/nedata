@@ -15,6 +15,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { randomUUID } from "crypto";
+import { extractAudit, generateExcel, DEFAULT_MODEL } from "../../lib/extractor";
 
 export const config = {
   api: {
@@ -108,71 +109,31 @@ async function runExtractionJob(jobId: string, urls: string[]) {
     return;
   }
 
-  // Dynamically import Python-equivalent logic via child_process
-  // On Vercel, we call the Python script as a subprocess.
-  // For the serverless environment, we use a JS-native minimal extraction.
-  const { execFile } = await import("child_process");
-  const { promisify } = await import("util");
-  const execFileAsync = promisify(execFile);
-
-  // Write URLs to a temp CSV
   const tmpDir = os.tmpdir();
-  const tmpCsv = path.join(tmpDir, `${jobId}_urls.csv`);
   const tmpOutput = path.join(tmpDir, `${jobId}_output.xlsx`);
 
-  fs.writeFileSync(tmpCsv, "url\n" + urls.join("\n"), "utf-8");
-
-  addJobLog(job, "info", `Processing ${urls.length} URLs...`);
+  addJobLog(job, "info", `Processing ${urls.length} URL(s)...`);
 
   try {
-    const pythonCmd = process.env.PYTHON_PATH || "python3";
-    const scriptPath = path.join(process.cwd(), "extract_audits.py");
-
-    const { stdout, stderr } = await execFileAsync(
-      pythonCmd,
-      [
-        scriptPath,
-        tmpCsv,
-        "--output",
-        tmpOutput,
-        "--max-pages",
-        "15",
-        "--limit",
-        "25", // Safety cap for Vercel
-      ],
-      {
-        env: { ...process.env, ANTHROPIC_API_KEY: apiKey },
-        timeout: 55_000, // Just under Vercel's 60s limit
-      }
-    );
-
-    if (stdout) {
-      stdout.split("\n").forEach((line) => {
-        if (line.trim()) addJobLog(job, "info", line.trim());
+    const records: Record<string, unknown>[] = [];
+    for (const url of urls) {
+      const result = await extractAudit(url, apiKey, DEFAULT_MODEL, (msg) => {
+        addJobLog(job, "info", msg);
       });
-    }
-    if (stderr) {
-      stderr.split("\n").forEach((line) => {
-        if (line.trim()) addJobLog(job, "warn", line.trim());
-      });
+      records.push(result);
+      job.processed = records.length;
     }
 
-    if (fs.existsSync(tmpOutput)) {
-      job.downloadPath = tmpOutput;
-      job.status = "complete";
-      job.processed = urls.length;
-      addJobLog(job, "success", `Extraction complete. ${urls.length} entities processed.`);
-    } else {
-      throw new Error("Output file was not created.");
-    }
+    await generateExcel(records, tmpOutput);
+
+    job.downloadPath = tmpOutput;
+    job.status = "complete";
+    addJobLog(job, "success", `Extraction complete. ${records.length} entities processed.`);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     job.status = "error";
     job.error = msg;
     addJobLog(job, "error", `Extraction failed: ${msg}`);
-  } finally {
-    // Clean up temp CSV
-    if (fs.existsSync(tmpCsv)) fs.unlinkSync(tmpCsv);
   }
 }
 
