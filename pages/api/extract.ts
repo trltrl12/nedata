@@ -47,45 +47,45 @@ export const jobs = global.__jobs;
 
 // ---------------------------------------------------------------------------
 // Parse CSV text → array of URLs
-// Handles: header or no header, any column name containing "url" or "link",
-// quoted values, BOM characters, and bare-URL-per-line files.
+// Works with any CSV format: horizontal (one URL per row), vertical/transposed
+// (label in col A, value in col B, URL somewhere in the block), no header,
+// any column name, BOM characters, CRLF line endings, quoted values.
 // ---------------------------------------------------------------------------
 function parseUrls(csvText: string): string[] {
-  // Strip UTF-8 BOM if present
-  const text = csvText.replace(/^\uFEFF/, "");
+  const isUrl = (s: string) => s.startsWith("http://") || s.startsWith("https://");
+
+  // Strip UTF-8 BOM and normalise line endings
+  const text = csvText.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
   if (lines.length === 0) return [];
 
-  const extractFromLine = (line: string, colIdx: number): string => {
-    const cols = line.split(",");
-    return (cols[colIdx] ?? "").replace(/"/g, "").trim();
-  };
-
-  const isUrl = (s: string) => s.startsWith("http://") || s.startsWith("https://");
-
-  // If the first line is itself a URL, treat every line as a raw URL (no header)
-  if (isUrl(lines[0].replace(/"/g, "").trim())) {
-    return lines.map((l) => l.replace(/"/g, "").trim()).filter(isUrl);
+  // Split a CSV line respecting double-quoted fields (handles commas inside quotes)
+  function splitLine(line: string): string[] {
+    const cols: string[] = [];
+    let cur = "";
+    let inQuote = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { inQuote = !inQuote; continue; }
+      if (ch === "," && !inQuote) { cols.push(cur.trim()); cur = ""; continue; }
+      cur += ch;
+    }
+    cols.push(cur.trim());
+    return cols;
   }
 
-  // Find a column whose header contains "url" or "link" (case-insensitive)
-  const headerCols = lines[0].split(",").map((h) => h.replace(/"/g, "").trim().toLowerCase());
-  const urlColIdx = headerCols.findIndex((h) => h.includes("url") || h.includes("link"));
-
-  if (urlColIdx !== -1) {
-    // Use the matched column
-    return lines
-      .slice(1)
-      .map((l) => extractFromLine(l, urlColIdx))
-      .filter(isUrl);
-  }
-
-  // Last resort: scan every cell in every row for anything that looks like a URL
+  // Brute-force: scan every cell in the entire file for a URL.
+  // This handles vertical/transposed formats (like the NE APA export where
+  // "Link to Report if Available" is a row label and the URL is the next cell),
+  // horizontal formats, and anything in between.
+  const seen = new Set<string>();
   const urls: string[] = [];
-  for (const line of lines.slice(1)) {
-    for (const cell of line.split(",")) {
-      const val = cell.replace(/"/g, "").trim();
-      if (isUrl(val)) { urls.push(val); break; }
+  for (const line of lines) {
+    for (const cell of splitLine(line)) {
+      if (isUrl(cell) && !seen.has(cell)) {
+        seen.add(cell);
+        urls.push(cell);
+      }
     }
   }
   return urls;
