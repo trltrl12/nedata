@@ -47,24 +47,45 @@ export const jobs = global.__jobs;
 
 // ---------------------------------------------------------------------------
 // Parse CSV text → array of URLs
+// Handles: header or no header, any column name containing "url" or "link",
+// quoted values, BOM characters, and bare-URL-per-line files.
 // ---------------------------------------------------------------------------
 function parseUrls(csvText: string): string[] {
-  const lines = csvText.split("\n").map((l) => l.trim()).filter(Boolean);
+  // Strip UTF-8 BOM if present
+  const text = csvText.replace(/^\uFEFF/, "");
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
   if (lines.length === 0) return [];
 
-  const header = lines[0].toLowerCase();
-  const urlColIdx = header.split(",").findIndex((h) => h.replace(/"/g, "") === "url");
+  const extractFromLine = (line: string, colIdx: number): string => {
+    const cols = line.split(",");
+    return (cols[colIdx] ?? "").replace(/"/g, "").trim();
+  };
 
-  if (urlColIdx === -1) {
-    throw new Error("CSV must have a column named 'url'");
+  const isUrl = (s: string) => s.startsWith("http://") || s.startsWith("https://");
+
+  // If the first line is itself a URL, treat every line as a raw URL (no header)
+  if (isUrl(lines[0].replace(/"/g, "").trim())) {
+    return lines.map((l) => l.replace(/"/g, "").trim()).filter(isUrl);
   }
 
+  // Find a column whose header contains "url" or "link" (case-insensitive)
+  const headerCols = lines[0].split(",").map((h) => h.replace(/"/g, "").trim().toLowerCase());
+  const urlColIdx = headerCols.findIndex((h) => h.includes("url") || h.includes("link"));
+
+  if (urlColIdx !== -1) {
+    // Use the matched column
+    return lines
+      .slice(1)
+      .map((l) => extractFromLine(l, urlColIdx))
+      .filter(isUrl);
+  }
+
+  // Last resort: scan every cell in every row for anything that looks like a URL
   const urls: string[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(",");
-    const url = cols[urlColIdx]?.replace(/"/g, "").trim();
-    if (url && url.startsWith("http")) {
-      urls.push(url);
+  for (const line of lines.slice(1)) {
+    for (const cell of line.split(",")) {
+      const val = cell.replace(/"/g, "").trim();
+      if (isUrl(val)) { urls.push(val); break; }
     }
   }
   return urls;
