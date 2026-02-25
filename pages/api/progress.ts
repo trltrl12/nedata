@@ -44,7 +44,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   let lastLogIdx = 0;
   let pollCount = 0;
-  const maxPolls = 500; // ~50 seconds at 100ms intervals
+  const maxPolls = 6000; // ~600 seconds / 10 minutes at 100ms intervals
 
   const interval = setInterval(() => {
     pollCount++;

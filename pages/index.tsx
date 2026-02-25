@@ -148,6 +148,29 @@ export default function Home() {
     (mode === "csv" && csvFile !== null)
   );
 
+  async function handleDownload() {
+    if (!jobStatus?.downloadUrl) return;
+    try {
+      const res = await fetch(jobStatus.downloadUrl);
+      if (!res.ok) {
+        const msg = await res.text();
+        addLog(`Download failed: ${msg}`, "error");
+        return;
+      }
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `nebraska_audit_results_${new Date().toISOString().split("T")[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      addLog(`Download error: ${err}`, "error");
+    }
+  }
+
   return (
     <>
       <Head>
@@ -258,13 +281,12 @@ export default function Home() {
             </button>
 
             {isComplete && jobStatus?.downloadUrl && (
-              <a
-                href={jobStatus.downloadUrl}
-                download
-                className="px-7 py-3 rounded-lg font-semibold text-sm bg-green-700 hover:bg-green-600 text-white transition-all"
+              <button
+                onClick={handleDownload}
+                className="px-7 py-3 rounded-lg font-semibold text-sm bg-green-700 hover:bg-green-600 text-white transition-all active:scale-95"
               >
                 ⬇  Download Excel
-              </a>
+              </button>
             )}
 
             {urlCount > 0 && !isRunning && !isComplete && (

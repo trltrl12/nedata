@@ -24,11 +24,13 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const filename = `nebraska_audit_results_${new Date().toISOString().split("T")[0]}.xlsx`;
+  const stat = fs.statSync(job.downloadPath);
   res.setHeader(
     "Content-Type",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
   );
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.setHeader("Content-Length", stat.size);
 
   const fileStream = fs.createReadStream(job.downloadPath);
   fileStream.pipe(res);
