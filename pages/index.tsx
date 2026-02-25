@@ -38,6 +38,7 @@ export default function Home() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [model, setModel] = useState<"haiku" | "sonnet">("haiku");
 
   const logEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -87,6 +88,7 @@ export default function Home() {
 
     const formData = new FormData();
     formData.append("maxPages", "15");
+    formData.append("model", model === "haiku" ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-6");
     if (hasPaste) {
       formData.append("pastedUrls", pastedText);
     } else if (csvFile) {
@@ -265,6 +267,24 @@ export default function Home() {
               </div>
             </section>
           )}
+
+          {/* Model selector */}
+          <section className="flex items-center gap-3">
+            <span className="text-xs text-slate-500 font-medium uppercase tracking-wider">Model</span>
+            <div className="flex gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
+              {(["haiku", "sonnet"] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setModel(m)}
+                  className={`px-4 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    model === m ? "bg-navy-600 text-white" : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  {m === "haiku" ? "⚡ Haiku — cheaper" : "◆ Sonnet — accurate"}
+                </button>
+              ))}
+            </div>
+          </section>
 
           {/* Run button */}
           <section className="flex flex-wrap gap-3 items-center">

@@ -12,7 +12,8 @@ import ExcelJS from "exceljs";
 // Constants
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_MODEL = "claude-sonnet-4-6";
+export const DEFAULT_MODEL = "claude-haiku-4-5-20251001"; // ~4x cheaper than Sonnet
+export const SONNET_MODEL  = "claude-sonnet-4-6";
 
 /**
  * Page strategy for large PDFs:

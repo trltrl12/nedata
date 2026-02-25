@@ -15,7 +15,9 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { randomUUID } from "crypto";
-import { extractAudit, generateExcel, DEFAULT_MODEL } from "../../lib/extractor";
+import { extractAudit, generateExcel, DEFAULT_MODEL, SONNET_MODEL } from "../../lib/extractor";
+
+const ALLOWED_MODELS = new Set([DEFAULT_MODEL, SONNET_MODEL]);
 
 export const config = {
   api: {
@@ -95,7 +97,7 @@ function parseUrls(csvText: string): string[] {
 // ---------------------------------------------------------------------------
 // Background processing (runs inside the serverless function)
 // ---------------------------------------------------------------------------
-async function runExtractionJob(jobId: string, urls: string[]) {
+async function runExtractionJob(jobId: string, urls: string[], model: string) {
   const job = jobs.get(jobId);
   if (!job) return;
 
@@ -117,7 +119,7 @@ async function runExtractionJob(jobId: string, urls: string[]) {
   try {
     const records: Record<string, unknown>[] = [];
     for (const url of urls) {
-      const result = await extractAudit(url, apiKey, DEFAULT_MODEL, (msg) => {
+      const result = await extractAudit(url, apiKey, model, (msg) => {
         addJobLog(job, "info", msg);
       });
       records.push(result);
@@ -200,6 +202,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: "No valid URLs found. Make sure your URLs start with http:// or https://" });
   }
 
+  const modelRaw = fields["model"];
+  const modelStr = (Array.isArray(modelRaw) ? modelRaw[0] : modelRaw) ?? DEFAULT_MODEL;
+  const model = ALLOWED_MODELS.has(modelStr as string) ? (modelStr as string) : DEFAULT_MODEL;
+
   // Create job
   const jobId = randomUUID();
   const job: Job = {
@@ -213,7 +219,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   jobs.set(jobId, job);
 
   // Kick off processing (non-blocking — progress tracked via SSE)
-  runExtractionJob(jobId, urls).catch((err) => {
+  runExtractionJob(jobId, urls, model).catch((err) => {
     const j = jobs.get(jobId);
     if (j) {
       j.status = "error";
