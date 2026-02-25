@@ -59,3 +59,4 @@ htmlcov/
 *.log
 tmp/
 temp/
+tsconfig.tsbuildinfo
