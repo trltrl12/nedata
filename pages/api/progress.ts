@@ -5,9 +5,6 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from "next";
-import fs from "fs";
-import path from "path";
-import os from "os";
 import { jobs } from "./extract";
 
 export const config = {
@@ -74,17 +71,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Check terminal states
     if (currentJob.status === "complete") {
-      let downloadUrl: string | undefined;
-
-      // Serve the file via a download endpoint if available
-      if (currentJob.downloadPath && fs.existsSync(currentJob.downloadPath)) {
-        downloadUrl = `/api/download?jobId=${jobId}`;
-      }
-
+      // downloadBuffer is set before status becomes "complete", so it's always available
       send(res, {
         type: "complete",
         processed: currentJob.urls.length,
-        downloadUrl,
+        downloadUrl: `/api/download?jobId=${jobId}`,
       });
       clearInterval(interval);
       res.end();

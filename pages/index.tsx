@@ -268,25 +268,7 @@ export default function Home() {
             </section>
           )}
 
-          {/* Model selector */}
-          <section className="flex items-center gap-3">
-            <span className="text-xs text-slate-500 font-medium uppercase tracking-wider">Model</span>
-            <div className="flex gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
-              {(["haiku", "sonnet"] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setModel(m)}
-                  className={`px-4 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                    model === m ? "bg-navy-600 text-white" : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  {m === "haiku" ? "⚡ Haiku — cheaper" : "◆ Sonnet — accurate"}
-                </button>
-              ))}
-            </div>
-          </section>
-
-          {/* Run button */}
+          {/* Run button + model selector */}
           <section className="flex flex-wrap gap-3 items-center">
             <button
               onClick={handleRun}
@@ -299,6 +281,21 @@ export default function Home() {
             >
               {isUploading ? "Uploading..." : isRunning ? "Processing..." : "▶  Run Extraction"}
             </button>
+
+            {/* Model toggle — inline so layout stays the same */}
+            <div className="flex gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
+              {(["haiku", "sonnet"] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setModel(m)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    model === m ? "bg-navy-600 text-white" : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  {m === "haiku" ? "⚡ Haiku" : "◆ Sonnet"}
+                </button>
+              ))}
+            </div>
 
             {isComplete && jobStatus?.downloadUrl && (
               <button

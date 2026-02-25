@@ -33,6 +33,7 @@ export interface Job {
   processed: number;
   logs: Array<{ ts: string; level: string; msg: string }>;
   downloadPath?: string;
+  downloadBuffer?: Buffer; // in-memory copy for reliable serving
   error?: string;
   createdAt: number;
 }
@@ -128,6 +129,8 @@ async function runExtractionJob(jobId: string, urls: string[], model: string) {
 
     await generateExcel(records, tmpOutput);
 
+    // Store in memory for reliable serving — avoids all filesystem race conditions
+    job.downloadBuffer = fs.readFileSync(tmpOutput);
     job.downloadPath = tmpOutput;
     job.status = "complete";
     addJobLog(job, "success", `Extraction complete. ${records.length} entities processed.`);
