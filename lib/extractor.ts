@@ -1,10 +1,11 @@
 /**
  * Nebraska APA Audit Data Extractor — TypeScript Core Library
- * Replaces extract_audits.py + lib/extractor.py for Vercel deployment.
- * Uses the Anthropic API's native PDF document support (no Python/PyMuPDF needed).
+ * Uses Anthropic API's native PDF document support (no Python/PyMuPDF needed).
+ * Large PDFs are trimmed with pdf-lib to stay within the 100-page API limit.
  */
 
 import Anthropic from "@anthropic-ai/sdk";
+import { PDFDocument } from "pdf-lib";
 import ExcelJS from "exceljs";
 
 // ---------------------------------------------------------------------------
@@ -12,6 +13,16 @@ import ExcelJS from "exceljs";
 // ---------------------------------------------------------------------------
 
 export const DEFAULT_MODEL = "claude-sonnet-4-6";
+
+/**
+ * Page strategy for large PDFs:
+ *   - Take the first FRONT_PAGES (cover → financial statements)
+ *   - Take the last  BACK_PAGES  (findings / opinions)
+ *   - Total must stay ≤ 100 (Anthropic hard limit)
+ */
+const MAX_FRONT_PAGES = 65;
+const MAX_BACK_PAGES = 30;
+const API_PAGE_LIMIT = 100; // Anthropic hard limit
 
 export const FIELDS = [
   "entity_name",
@@ -59,8 +70,8 @@ export const COLUMN_HEADERS: Record<string, string> = {
   number_of_findings: "Number of Findings",
   material_weakness: "Material Weakness",
   significant_deficiency: "Significant Deficiency",
-  total_receipts: "Total Receipts",
-  total_disbursements: "Total Disbursements",
+  total_receipts: "Total Receipts / Revenues",
+  total_disbursements: "Total Disbursements / Expenditures",
   net_change_in_fund_balance: "Net Change in Fund Balance",
   total_assets: "Total Assets",
   fund_balance_end_of_year: "Fund Balance (End of Year)",
@@ -110,49 +121,112 @@ export const CURRENCY_FIELDS = new Set([
   "road_bridge_fund_balance",
 ]);
 
-const EXTRACTION_PROMPT = `You are an expert at extracting financial data from Nebraska government audit reports.
-Analyze the provided audit report PDF and extract ALL of the following fields.
+// ---------------------------------------------------------------------------
+// Extraction Prompt
+// ---------------------------------------------------------------------------
 
-Return ONLY a valid JSON object with exactly these keys. Use null for any field not found.
-For boolean fields (material_weakness, significant_deficiency), return true or false.
-For numeric/currency fields, return numbers only (no $ signs, no commas).
-For audit_opinion, use exactly one of: "Unmodified", "Modified", "Adverse", "Disclaimer".
+const EXTRACTION_PROMPT = `You are an expert at extracting financial data from Nebraska government audit reports
+produced by the Nebraska Auditor of Public Accounts (APA).
 
+ACCOUNTING BASIS — Nebraska APA audits use two main formats:
+1. CASH BASIS (smaller entities — villages, small counties, small school districts):
+   Financial statements use "Receipts" and "Disbursements."
+2. GAAP / ACCRUAL (larger entities — large counties, cities, larger school districts):
+   Financial statements use "Revenues" and "Expenditures."
+   Large entities also have Government-Wide statements (Statement of Net Position +
+   Statement of Activities) in addition to fund-based statements.
+
+KEY EXTRACTION RULES:
+- For financial totals, use the ALL FUNDS total, TOTAL GOVERNMENTAL FUNDS column,
+  or TOTAL column when multiple funds are shown side by side.
+- For GAAP audits: "Revenues" maps to total_receipts; "Expenditures" maps to total_disbursements.
+- Numbers in parentheses (123,456) represent negative values — return them as negative numbers.
+- Strip all dollar signs ($), commas, and formatting — return raw numbers only.
+- Use null for any field not found or not clearly determinable.
+
+SPECIFIC FIELD GUIDANCE:
+
+entity_name: Full legal name from cover page (e.g., "Douglas County, Nebraska").
+entity_type: One of — County | School District | Village | City | Fire District | ESU | NRD | Other
+fiscal_year_end: The "year ended" date from the cover page or financial statement headers. Format MM/DD/YYYY.
+audit_date: The date the Independent Auditor's Report was signed. Format MM/DD/YYYY.
+auditor_name: The auditing firm or individual CPA name (often "State of Nebraska Auditor of Public Accounts" or a CPA firm name).
+audit_opinion:
+  - "Unmodified" — report says "present fairly, in all material respects" with no exception
+  - "Modified" — report says "except for" something
+  - "Adverse" — report says "do not present fairly"
+  - "Disclaimer" — report says "we do not express an opinion" or "unable to obtain sufficient evidence"
+number_of_findings: Count findings listed in the Schedule of Findings and Responses section.
+  Each numbered finding = 1. Return 0 if the section says "no findings."
+material_weakness: true if auditor's report on internal control mentions a "material weakness"; false if
+  "no material weaknesses"; null if not discussed.
+significant_deficiency: true if report mentions a "significant deficiency"; false if explicitly states
+  "no significant deficiencies"; null if not discussed.
+
+FINANCIAL FIELDS — TOTALS ACROSS ALL FUNDS:
+total_receipts: "Total Receipts" (cash basis) OR "Total Revenues" (GAAP). Use All Funds / Total Governmental Funds total column.
+total_disbursements: "Total Disbursements" (cash basis) OR "Total Expenditures" (GAAP). All Funds total.
+net_change_in_fund_balance: "Net Change in Fund Balance(s)" or "Net Change in Cash and Investments." Total all funds.
+total_assets: Total assets from the Balance Sheet (GAAP) or Statement of Assets/Cash (cash basis). Total all funds or net position statement.
+fund_balance_end_of_year: "Fund Balance, End of Year" or "Fund Balances, [Date]" — Total Governmental Funds ending balance.
+fund_balance_beginning_of_year: "Fund Balance, Beginning of Year" — Total Governmental Funds beginning balance.
+cash_and_investments: "Cash and Investments" or "Cash and Cash Equivalents" — from Balance Sheet, total.
+
+REVENUE BREAKDOWN (from the revenue section of the Statement of Revenues/Receipts):
+tax_revenue_total: Sum of all tax-related revenues (property tax + other taxes). Or "Total Taxes."
+property_tax: "Property Tax," "Real Property Tax," "Ad Valorem Tax," or "Real and Personal Property Taxes."
+intergovernmental_revenue: "Intergovernmental" revenues (state aid, CARES, federal grants, etc.)
+charges_for_services: "Charges for Services," "Fees and Charges," or "Service Charges."
+investment_income: "Investment Income," "Interest Income," "Interest on Investments," or "Interest on Deposits."
+miscellaneous_revenue: "Miscellaneous," "Other Revenue," or catch-all revenue line not elsewhere classified.
+
+EXPENDITURE BREAKDOWN (from the expenditure/function section):
+general_govt_disbursements: "General Government," "General Administration," or "Legislative / Executive" function total.
+public_safety_disbursements: "Public Safety," "Law Enforcement," "Sheriff," "Corrections," or "Emergency Services" total.
+public_works_disbursements: "Public Works," "Highways and Streets," "Roads," or "Transportation" function total.
+education_disbursements: "Education," "Instruction," or "Support Services" total (mostly School Districts).
+debt_service_disbursements: "Debt Service" function total (principal + interest payments).
+capital_outlay_disbursements: "Capital Outlay" function total OR capital outlay line within functions.
+total_long_term_debt: From Notes to Financial Statements — total long-term bonds, loans, or obligations outstanding at year-end.
+
+FUND-SPECIFIC BALANCES:
+general_fund_balance: Ending fund balance for the General Fund only (not combined with other funds).
+road_bridge_fund_balance: Ending fund balance for the Road Fund, County Road Fund, Bridge Fund, or Road and Bridge Fund.
+
+Return ONLY a valid JSON object with no extra text, no markdown, no code fences:
 {
-  "entity_name": "Full legal name of the audited entity",
-  "entity_type": "County | School District | Village | City | Fire District | ESU | NRD | Other",
-  "fiscal_year_end": "MM/DD/YYYY or YYYY-MM-DD",
-  "audit_date": "MM/DD/YYYY or YYYY-MM-DD",
-  "auditor_name": "Name of auditor or audit firm",
-  "audit_opinion": "Unmodified | Modified | Adverse | Disclaimer",
-  "number_of_findings": integer or null,
-  "material_weakness": true/false or null,
-  "significant_deficiency": true/false or null,
-  "total_receipts": numeric or null,
-  "total_disbursements": numeric or null,
-  "net_change_in_fund_balance": numeric or null,
-  "total_assets": numeric or null,
-  "fund_balance_end_of_year": numeric or null,
-  "fund_balance_beginning_of_year": numeric or null,
-  "cash_and_investments": numeric or null,
-  "tax_revenue_total": numeric or null,
-  "property_tax": numeric or null,
-  "intergovernmental_revenue": numeric or null,
-  "charges_for_services": numeric or null,
-  "investment_income": numeric or null,
-  "miscellaneous_revenue": numeric or null,
-  "general_govt_disbursements": numeric or null,
-  "public_safety_disbursements": numeric or null,
-  "public_works_disbursements": numeric or null,
-  "education_disbursements": numeric or null,
-  "debt_service_disbursements": numeric or null,
-  "capital_outlay_disbursements": numeric or null,
-  "total_long_term_debt": numeric or null,
-  "general_fund_balance": numeric or null,
-  "road_bridge_fund_balance": numeric or null
-}
-
-The document follows. Extract carefully — documents vary widely in structure.`;
+  "entity_name": null,
+  "entity_type": null,
+  "fiscal_year_end": null,
+  "audit_date": null,
+  "auditor_name": null,
+  "audit_opinion": null,
+  "number_of_findings": null,
+  "material_weakness": null,
+  "significant_deficiency": null,
+  "total_receipts": null,
+  "total_disbursements": null,
+  "net_change_in_fund_balance": null,
+  "total_assets": null,
+  "fund_balance_end_of_year": null,
+  "fund_balance_beginning_of_year": null,
+  "cash_and_investments": null,
+  "tax_revenue_total": null,
+  "property_tax": null,
+  "intergovernmental_revenue": null,
+  "charges_for_services": null,
+  "investment_income": null,
+  "miscellaneous_revenue": null,
+  "general_govt_disbursements": null,
+  "public_safety_disbursements": null,
+  "public_works_disbursements": null,
+  "education_disbursements": null,
+  "debt_service_disbursements": null,
+  "capital_outlay_disbursements": null,
+  "total_long_term_debt": null,
+  "general_fund_balance": null,
+  "road_bridge_fund_balance": null
+}`;
 
 // ---------------------------------------------------------------------------
 // PDF Download
@@ -173,7 +247,61 @@ export async function downloadPdf(url: string): Promise<Buffer | null> {
 }
 
 // ---------------------------------------------------------------------------
-// Claude API Extraction (uses native PDF document support — no image conversion)
+// PDF Page Truncation
+// Keeps first MAX_FRONT_PAGES + last MAX_BACK_PAGES, up to API_PAGE_LIMIT total.
+// Skips truncation if the PDF is already within limits.
+// ---------------------------------------------------------------------------
+
+export async function truncatePdf(
+  pdfBuffer: Buffer,
+  log: (msg: string) => void = () => {}
+): Promise<Buffer> {
+  let srcDoc: PDFDocument;
+  try {
+    srcDoc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });
+  } catch {
+    // If pdf-lib can't parse it, return the original and let the API try
+    log("Warning: pdf-lib could not parse PDF for truncation — sending as-is");
+    return pdfBuffer;
+  }
+
+  const totalPages = srcDoc.getPageCount();
+
+  if (totalPages <= API_PAGE_LIMIT) {
+    log(`PDF has ${totalPages} page(s) — no truncation needed`);
+    return pdfBuffer;
+  }
+
+  // Front section: pages 0 … MAX_FRONT_PAGES-1
+  const frontCount = Math.min(MAX_FRONT_PAGES, totalPages);
+  // Back section: starts after front section ends, takes up to MAX_BACK_PAGES
+  const backStart = Math.max(frontCount, totalPages - MAX_BACK_PAGES);
+  const backCount = totalPages - backStart;
+
+  log(
+    `PDF has ${totalPages} pages (limit ${API_PAGE_LIMIT}) — ` +
+      `sending pages 1–${frontCount} and ${backStart + 1}–${totalPages} ` +
+      `(${frontCount + backCount} pages total)`
+  );
+
+  const newDoc = await PDFDocument.create();
+
+  const frontIndices = Array.from({ length: frontCount }, (_, i) => i);
+  const frontPages = await newDoc.copyPages(srcDoc, frontIndices);
+  frontPages.forEach((p) => newDoc.addPage(p));
+
+  if (backCount > 0) {
+    const backIndices = Array.from({ length: backCount }, (_, i) => backStart + i);
+    const backPages = await newDoc.copyPages(srcDoc, backIndices);
+    backPages.forEach((p) => newDoc.addPage(p));
+  }
+
+  const bytes = await newDoc.save();
+  return Buffer.from(bytes);
+}
+
+// ---------------------------------------------------------------------------
+// Claude API Extraction (uses native PDF document support)
 // ---------------------------------------------------------------------------
 
 async function extractWithClaude(
@@ -190,7 +318,6 @@ async function extractWithClaude(
     messages: [
       {
         role: "user",
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         content: [
           {
             type: "document",
@@ -211,7 +338,7 @@ async function extractWithClaude(
 
   let rawText = (message.content[0] as { type: string; text: string }).text.trim();
 
-  // Strip markdown code fences if present
+  // Strip markdown code fences if present (model sometimes adds them despite instructions)
   if (rawText.startsWith("```")) {
     const lines = rawText.split("\n");
     rawText = lines.slice(1, lines[lines.length - 1].trim() === "```" ? -1 : undefined).join("\n");
@@ -236,21 +363,24 @@ export async function extractAudit(
   result["extraction_status"] = "error";
 
   log(`Downloading PDF: ${url}`);
-  const pdfBuffer = await downloadPdf(url);
-  if (!pdfBuffer) {
+  const rawBuffer = await downloadPdf(url);
+  if (!rawBuffer) {
     result["extraction_status"] = "download_failed";
     log(`ERROR: Download failed for ${url}`);
     return result;
   }
 
-  log(`Extracting data (${Math.round(pdfBuffer.length / 1024)} KB)...`);
+  log(`Downloaded ${Math.round(rawBuffer.length / 1024)} KB — checking page count...`);
+  const pdfBuffer = await truncatePdf(rawBuffer, log);
+
+  log(`Sending to Claude for extraction...`);
   try {
     const extracted = await extractWithClaude(pdfBuffer, apiKey, model);
     for (const field of FIELDS) {
       if (field in extracted) result[field] = extracted[field];
     }
     result["extraction_status"] = "success";
-    log(`SUCCESS: ${String(result["entity_name"] || "Unknown")} extracted`);
+    log(`SUCCESS: ${String(result["entity_name"] || "Unknown")} — ${url}`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     result["extraction_status"] = `error: ${msg.slice(0, 100)}`;
@@ -297,10 +427,12 @@ export async function generateExcel(
     const rowValues: unknown[] = FIELDS.map((field) => {
       let val = record[field];
       if (CURRENCY_FIELDS.has(field) && val != null) {
-        return parseFloat(String(val)) || null;
+        const n = parseFloat(String(val));
+        return isNaN(n) ? null : n;
       }
       if (field === "number_of_findings" && val != null) {
-        return parseInt(String(val), 10) || null;
+        const n = parseInt(String(val), 10);
+        return isNaN(n) ? null : n;
       }
       if (field === "material_weakness" || field === "significant_deficiency") {
         if (val === true) return "Yes";
