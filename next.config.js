@@ -8,10 +8,6 @@ const nextConfig = {
     },
     responseLimit: "50mb",
   },
-  // Vercel environment
-  env: {
-    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-  },
 };
 
 module.exports = nextConfig;
