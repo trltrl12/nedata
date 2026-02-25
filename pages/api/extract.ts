@@ -206,19 +206,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: `Form parse error: ${msg}` });
   }
 
-  // Get uploaded CSV file
+  // Accept either a pasted text block (field: "pastedUrls") or a CSV file upload (field: "csv")
+  const pastedRaw = fields["pastedUrls"];
+  const pastedText = (Array.isArray(pastedRaw) ? pastedRaw[0] : pastedRaw) ?? "";
+
   const csvFileRaw = files["csv"];
   const csvFile = Array.isArray(csvFileRaw) ? csvFileRaw[0] : csvFileRaw;
-  if (!csvFile) {
-    return res.status(400).json({ error: "No CSV file uploaded. Field name must be 'csv'." });
+
+  let csvText = pastedText as string;
+  if (!csvText.trim() && csvFile) {
+    const csvPath = (csvFile as FormidableFile).filepath;
+    try {
+      csvText = fs.readFileSync(csvPath, "utf-8");
+    } catch {
+      return res.status(400).json({ error: "Could not read uploaded file." });
+    }
   }
 
-  const csvPath = (csvFile as FormidableFile).filepath;
-  let csvText: string;
-  try {
-    csvText = fs.readFileSync(csvPath, "utf-8");
-  } catch {
-    return res.status(400).json({ error: "Could not read uploaded file." });
+  if (!csvText.trim()) {
+    return res.status(400).json({ error: "No input provided. Paste URLs or upload a CSV file." });
   }
 
   let urls: string[];
@@ -230,7 +236,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (urls.length === 0) {
-    return res.status(400).json({ error: "No valid URLs found in CSV." });
+    return res.status(400).json({ error: "No valid URLs found. Make sure your URLs start with http:// or https://" });
   }
 
   // Create job
