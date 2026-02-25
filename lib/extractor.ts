@@ -28,100 +28,158 @@ const MAX_BACK_PAGES = 20;
 const API_PAGE_LIMIT = 100; // Anthropic hard limit (page count)
 
 export const FIELDS = [
+  // --- Identity ---
   "entity_name",
   "entity_type",
   "fiscal_year_end",
   "audit_date",
   "auditor_name",
+
+  // --- Audit opinion & compliance ---
   "audit_opinion",
   "number_of_findings",
   "material_weakness",
   "significant_deficiency",
+
+  // --- High-level financial totals ---
   "total_receipts",
   "total_disbursements",
   "net_change_in_fund_balance",
   "total_assets",
+  "total_liabilities",
+  "cash_and_investments",
   "fund_balance_end_of_year",
   "fund_balance_beginning_of_year",
-  "cash_and_investments",
+
+  // --- Debt totals ---
+  "total_long_term_debt",
+  "bonds_payable",
+  "notes_payable",
+  "net_pension_liability",
+
+  // --- Revenue breakdown ---
   "tax_revenue_total",
   "property_tax",
+  "sales_tax",
+  "motor_vehicle_tax",
   "intergovernmental_revenue",
   "charges_for_services",
   "investment_income",
   "miscellaneous_revenue",
+
+  // --- Expenditure breakdown ---
   "general_govt_disbursements",
   "public_safety_disbursements",
   "public_works_disbursements",
+  "health_welfare_disbursements",
+  "culture_recreation_disbursements",
   "education_disbursements",
   "debt_service_disbursements",
   "capital_outlay_disbursements",
-  "total_long_term_debt",
+
+  // --- Fund balance / reserves ---
   "general_fund_balance",
   "road_bridge_fund_balance",
+  "restricted_fund_balance",
+  "unassigned_fund_balance",
+
+  // --- Metadata ---
   "source_url",
   "extraction_status",
 ] as const;
 
 export const COLUMN_HEADERS: Record<string, string> = {
+  // Identity
   entity_name: "Entity Name",
   entity_type: "Entity Type",
   fiscal_year_end: "Fiscal Year End",
   audit_date: "Audit Date",
   auditor_name: "Auditor Name",
+  // Audit
   audit_opinion: "Audit Opinion",
-  number_of_findings: "Number of Findings",
+  number_of_findings: "# Findings",
   material_weakness: "Material Weakness",
   significant_deficiency: "Significant Deficiency",
+  // Totals
   total_receipts: "Total Receipts / Revenues",
   total_disbursements: "Total Disbursements / Expenditures",
   net_change_in_fund_balance: "Net Change in Fund Balance",
   total_assets: "Total Assets",
-  fund_balance_end_of_year: "Fund Balance (End of Year)",
-  fund_balance_beginning_of_year: "Fund Balance (Beginning of Year)",
-  cash_and_investments: "Cash and Investments",
-  tax_revenue_total: "Tax Revenue Total",
+  total_liabilities: "Total Liabilities",
+  cash_and_investments: "Cash & Investments",
+  fund_balance_end_of_year: "Fund Balance — End of Year",
+  fund_balance_beginning_of_year: "Fund Balance — Beginning of Year",
+  // Debt
+  total_long_term_debt: "Total Long-Term Debt",
+  bonds_payable: "Bonds Payable",
+  notes_payable: "Notes / Loans Payable",
+  net_pension_liability: "Net Pension Liability",
+  // Revenue breakdown
+  tax_revenue_total: "Tax Revenue — Total",
   property_tax: "Property Tax",
+  sales_tax: "Sales / Occupation Tax",
+  motor_vehicle_tax: "Motor Vehicle Tax / Fees",
   intergovernmental_revenue: "Intergovernmental Revenue",
   charges_for_services: "Charges for Services",
   investment_income: "Investment Income",
   miscellaneous_revenue: "Miscellaneous Revenue",
-  general_govt_disbursements: "General Govt Disbursements",
-  public_safety_disbursements: "Public Safety Disbursements",
-  public_works_disbursements: "Public Works Disbursements",
-  education_disbursements: "Education Disbursements",
-  debt_service_disbursements: "Debt Service Disbursements",
-  capital_outlay_disbursements: "Capital Outlay Disbursements",
-  total_long_term_debt: "Total Long-Term Debt",
+  // Expenditure breakdown
+  general_govt_disbursements: "General Government",
+  public_safety_disbursements: "Public Safety",
+  public_works_disbursements: "Public Works / Roads",
+  health_welfare_disbursements: "Health & Welfare",
+  culture_recreation_disbursements: "Culture & Recreation",
+  education_disbursements: "Education",
+  debt_service_disbursements: "Debt Service",
+  capital_outlay_disbursements: "Capital Outlay",
+  // Fund balances / reserves
   general_fund_balance: "General Fund Balance",
   road_bridge_fund_balance: "Road/Bridge Fund Balance",
+  restricted_fund_balance: "Restricted Fund Balance",
+  unassigned_fund_balance: "Unassigned Fund Balance",
+  // Metadata
   source_url: "Source URL",
   extraction_status: "Extraction Status",
 };
 
 export const CURRENCY_FIELDS = new Set([
+  // Totals
   "total_receipts",
   "total_disbursements",
   "net_change_in_fund_balance",
   "total_assets",
+  "total_liabilities",
+  "cash_and_investments",
   "fund_balance_end_of_year",
   "fund_balance_beginning_of_year",
-  "cash_and_investments",
+  // Debt
+  "total_long_term_debt",
+  "bonds_payable",
+  "notes_payable",
+  "net_pension_liability",
+  // Revenue
   "tax_revenue_total",
   "property_tax",
+  "sales_tax",
+  "motor_vehicle_tax",
   "intergovernmental_revenue",
   "charges_for_services",
   "investment_income",
   "miscellaneous_revenue",
+  // Expenditure
   "general_govt_disbursements",
   "public_safety_disbursements",
   "public_works_disbursements",
+  "health_welfare_disbursements",
+  "culture_recreation_disbursements",
   "education_disbursements",
   "debt_service_disbursements",
   "capital_outlay_disbursements",
-  "total_long_term_debt",
+  // Fund balances
   "general_fund_balance",
   "road_bridge_fund_balance",
+  "restricted_fund_balance",
+  "unassigned_fund_balance",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -166,35 +224,47 @@ material_weakness: true if auditor's report on internal control mentions a "mate
 significant_deficiency: true if report mentions a "significant deficiency"; false if explicitly states
   "no significant deficiencies"; null if not discussed.
 
-FINANCIAL FIELDS — TOTALS ACROSS ALL FUNDS:
+HIGH-LEVEL FINANCIAL TOTALS:
 total_receipts: "Total Receipts" (cash basis) OR "Total Revenues" (GAAP). Use All Funds / Total Governmental Funds total column.
 total_disbursements: "Total Disbursements" (cash basis) OR "Total Expenditures" (GAAP). All Funds total.
 net_change_in_fund_balance: "Net Change in Fund Balance(s)" or "Net Change in Cash and Investments." Total all funds.
-total_assets: Total assets from the Balance Sheet (GAAP) or Statement of Assets/Cash (cash basis). Total all funds or net position statement.
+total_assets: Total assets from the Balance Sheet (GAAP) or Statement of Assets/Cash (cash basis). Total all governmental funds.
+total_liabilities: Total liabilities from the Balance Sheet or Statement of Net Position. Include all current and long-term liabilities. Total all governmental funds. For cash basis entities this is usually null.
+cash_and_investments: "Cash and Investments" or "Cash and Cash Equivalents" — from Balance Sheet, total.
 fund_balance_end_of_year: "Fund Balance, End of Year" or "Fund Balances, [Date]" — Total Governmental Funds ending balance.
 fund_balance_beginning_of_year: "Fund Balance, Beginning of Year" — Total Governmental Funds beginning balance.
-cash_and_investments: "Cash and Investments" or "Cash and Cash Equivalents" — from Balance Sheet, total.
 
-REVENUE BREAKDOWN (from the revenue section of the Statement of Revenues/Receipts):
-tax_revenue_total: Sum of all tax-related revenues (property tax + other taxes). Or "Total Taxes."
+DEBT:
+total_long_term_debt: From Notes to Financial Statements — total long-term debt outstanding at year-end (sum of all bonds, notes, loans, leases).
+bonds_payable: General obligation bonds or revenue bonds outstanding at year-end, from the long-term debt schedule or notes. Separate from notes/loans if listed.
+notes_payable: Notes payable, loans payable, or installment contracts outstanding at year-end. Null if not separately stated.
+net_pension_liability: Net Pension Liability (NPL) disclosed under GASB 68 in the Notes to Financial Statements. Return null for cash basis entities or if not disclosed.
+
+REVENUE BREAKDOWN (from the Statement of Revenues/Receipts — Total Governmental Funds):
+tax_revenue_total: Sum of all tax-related revenues. Often labeled "Total Taxes" or "Tax Revenue."
 property_tax: "Property Tax," "Real Property Tax," "Ad Valorem Tax," or "Real and Personal Property Taxes."
-intergovernmental_revenue: "Intergovernmental" revenues (state aid, CARES, federal grants, etc.)
+sales_tax: "Local Option Sales Tax," "Occupation Tax," "Sales and Use Tax," or "General Sales Tax." Return null if not present.
+motor_vehicle_tax: "Motor Vehicle Tax," "Motor Vehicle Registration," "Motor Vehicle Fees," or "Vehicle License Fees." Often listed separately under taxes.
+intergovernmental_revenue: "Intergovernmental" revenues — state aid, federal grants, CARES, highway allocation, etc.
 charges_for_services: "Charges for Services," "Fees and Charges," or "Service Charges."
 investment_income: "Investment Income," "Interest Income," "Interest on Investments," or "Interest on Deposits."
-miscellaneous_revenue: "Miscellaneous," "Other Revenue," or catch-all revenue line not elsewhere classified.
+miscellaneous_revenue: "Miscellaneous," "Other Revenue," or catch-all revenue not elsewhere classified.
 
-EXPENDITURE BREAKDOWN (from the expenditure/function section):
+EXPENDITURE / DISBURSEMENT BREAKDOWN (by function — Total Governmental Funds):
 general_govt_disbursements: "General Government," "General Administration," or "Legislative / Executive" function total.
 public_safety_disbursements: "Public Safety," "Law Enforcement," "Sheriff," "Corrections," or "Emergency Services" total.
 public_works_disbursements: "Public Works," "Highways and Streets," "Roads," or "Transportation" function total.
-education_disbursements: "Education," "Instruction," or "Support Services" total (mostly School Districts).
-debt_service_disbursements: "Debt Service" function total (principal + interest payments).
-capital_outlay_disbursements: "Capital Outlay" function total OR capital outlay line within functions.
-total_long_term_debt: From Notes to Financial Statements — total long-term bonds, loans, or obligations outstanding at year-end.
+health_welfare_disbursements: "Health," "Public Health," "Human Services," "Welfare," "Social Services," or "County Social Services" function total. Return null if not present as a separate function.
+culture_recreation_disbursements: "Culture and Recreation," "Parks and Recreation," "Library," or "Community Activities" function total. Return null if not present.
+education_disbursements: "Education," "Instruction," or "Support Services" total (primarily School Districts).
+debt_service_disbursements: "Debt Service" function total (principal + interest payments on long-term debt).
+capital_outlay_disbursements: "Capital Outlay" function total OR capital outlay line items summed across functions.
 
-FUND-SPECIFIC BALANCES:
+FUND BALANCE / RESERVES (from the governmental funds Balance Sheet):
 general_fund_balance: Ending fund balance for the General Fund only (not combined with other funds).
 road_bridge_fund_balance: Ending fund balance for the Road Fund, County Road Fund, Bridge Fund, or Road and Bridge Fund.
+restricted_fund_balance: "Restricted" fund balance component — amounts restricted by external parties, law, or enabling legislation. From the fund balance classification section of the Balance Sheet. For cash basis, look for "Reserved" fund balance.
+unassigned_fund_balance: "Unassigned" fund balance — the truly unrestricted, uncommitted, undesignated ending balance available for any purpose. For cash basis, look for "Unreserved" or "Undesignated" balance. Total all governmental funds.
 
 Return ONLY a valid JSON object with no extra text, no markdown, no code fences:
 {
@@ -211,11 +281,18 @@ Return ONLY a valid JSON object with no extra text, no markdown, no code fences:
   "total_disbursements": null,
   "net_change_in_fund_balance": null,
   "total_assets": null,
+  "total_liabilities": null,
+  "cash_and_investments": null,
   "fund_balance_end_of_year": null,
   "fund_balance_beginning_of_year": null,
-  "cash_and_investments": null,
+  "total_long_term_debt": null,
+  "bonds_payable": null,
+  "notes_payable": null,
+  "net_pension_liability": null,
   "tax_revenue_total": null,
   "property_tax": null,
+  "sales_tax": null,
+  "motor_vehicle_tax": null,
   "intergovernmental_revenue": null,
   "charges_for_services": null,
   "investment_income": null,
@@ -223,12 +300,15 @@ Return ONLY a valid JSON object with no extra text, no markdown, no code fences:
   "general_govt_disbursements": null,
   "public_safety_disbursements": null,
   "public_works_disbursements": null,
+  "health_welfare_disbursements": null,
+  "culture_recreation_disbursements": null,
   "education_disbursements": null,
   "debt_service_disbursements": null,
   "capital_outlay_disbursements": null,
-  "total_long_term_debt": null,
   "general_fund_balance": null,
-  "road_bridge_fund_balance": null
+  "road_bridge_fund_balance": null,
+  "restricted_fund_balance": null,
+  "unassigned_fund_balance": null
 }`;
 
 // ---------------------------------------------------------------------------
@@ -478,8 +558,9 @@ export async function generateExcel(
     if (field === "source_url") col.width = 50;
     else if (field === "entity_name") col.width = 35;
     else if (field === "auditor_name") col.width = 30;
-    else if (field === "extraction_status") col.width = 20;
-    else if (CURRENCY_FIELDS.has(field)) col.width = 18;
+    else if (field === "extraction_status") col.width = 22;
+    else if (field === "audit_opinion") col.width = 16;
+    else if (CURRENCY_FIELDS.has(field)) col.width = 20;
     else col.width = 16;
   });
 
